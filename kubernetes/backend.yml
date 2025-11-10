@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: mern-e-commerce-store_backend:v7/mern-e-commerce-store_backend:latest
+          image: arvind2611/mern-e-commerce-store_backend:latest
           ports:
             - containerPort: 5000
 ---
