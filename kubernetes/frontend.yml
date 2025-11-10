@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: mern-e-commerce-store_frontend:v7/mern-e-commerce-store_frontend:latest
+          image: arvind2611/mern-e-commerce-store_frontend:latest
           ports:
             - containerPort: 80
           env:
