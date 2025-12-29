@@ -1,0 +1,119 @@
+pipeline {
+    agent any
+    
+    environment{
+        SONAR_HOME = tool "Sonar"
+    }
+    
+    parameters{
+        string(name: 'FRONTEND_DOCKER_TAG', defaultValue: '', description: 'tag of frontend image')
+        string(name: 'BACKEND_DOCKER_TAG', defaultValue: '', description: 'tag of endend image')
+    }
+    
+    stages {
+        stage('Validate Parameters') {
+            steps {
+                script {
+                    if (params.FRONTEND_DOCKER_TAG == '' || params.BACKEND_DOCKER_TAG == '')
+                        error("Frontend tag or Backend tag not provided!!")
+                }
+            }
+        }
+        
+        stage("Workspace cleanup"){
+            steps{
+                script{
+                    cleanWs()
+                }
+            }
+        }
+        
+        stage('Git Checkout') {
+            steps {
+                script {
+                    git branch: 'main', url: 'https://github.com/Arvind-26/MERN-app-deployment-DevSecOps'
+                }
+            }
+        }
+        
+        stage("Trivy: filesystem scan") {
+            steps {
+                script {
+                    sh "trivy fs ."
+                }
+            }
+        }
+        
+        stage("OWASP: dependency check") {
+            steps {
+                script {
+                    dependencyCheck additionalArguments: '--scan ./', odcInstallation: 'OWASP'
+                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                }
+            }
+        }
+        
+        stage("Sonarqube analysis") {
+            steps {
+                script {
+                    withSonarQubeEnv(credentialsId: 'sonar-secret') {
+                        sh "$SONAR_HOME/bin/sonar-scanner -Dsonar.projectName=E-commerce -Dsonar.projectKey=E-commerce"
+                    }
+                }
+            }
+        }
+        
+        stage("Sonarqube code quality gates") {
+            steps {
+                script {
+                    timeout(1) {
+                        waitForQualityGate abortPipeline: false
+                    }
+                }
+            }
+        }
+        
+        stage('exporting environment variables'){
+            steps {
+                script {
+                    echo "exporting env"
+                }
+            }
+        }
+        
+        stage('Docker: Build Images') {
+            steps {
+                script {
+                    dir('backend'){
+                        sh "docker build -t arvind2611/mern-e-commerce-store_backend:${params.BACKEND_DOCKER_TAG} /var/lib/jenkins/workspace/CI/backend"
+                    }
+                    dir('frontend'){
+                        sh "docker build -t arvind2611/mern-e-commerce-store_frontend:${params.FRONTEND_DOCKER_TAG} /var/lib/jenkins/workspace/CI/frontend"
+                    }
+                }
+            }
+        }
+        
+        stage('Docker: push to dockerhub'){
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'docker-cred', passwordVariable: 'docker_password', usernameVariable: 'docker_username')]) {
+                        sh "docker login -u ${docker_username} -p ${docker_password}"
+                    }
+                        sh "docker push arvind2611/mern-e-commerce-store_backend:${params.BACKEND_DOCKER_TAG}"
+                        sh "docker push arvind2611/mern-e-commerce-store_frontend:${params.FRONTEND_DOCKER_TAG}"
+                }
+            }
+        }
+    }
+    
+    post{
+        success{
+            archiveArtifacts artifacts: '*.xml', followSymlinks: false
+            build job: "CD", parameters: [
+                string(name: 'FRONTEND_DOCKER_TAG', value: "${params.FRONTEND_DOCKER_TAG}"),
+                string(name: 'BACKEND_DOCKER_TAG', value: "${params.BACKEND_DOCKER_TAG}")
+            ]
+        }
+    }
+}
